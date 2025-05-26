@@ -1,0 +1,88 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Select Xcode version
+        run: sudo xcode-select -s /Applications/Xcode_15.0.app/Contents/Developer
+      
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 3.2
+      
+      - name: Install CocoaPods
+        run: sudo gem install cocoapods
+      
+      - name: Install dependencies
+        run: pod install
+      
+      - name: Build project
+        run: xcodebuild -workspace StrangerChat.xcworkspace -scheme StrangerChat -configuration Release build
+      
+      - name: Test project
+        run: xcodebuild -workspace StrangerChat.xcworkspace -scheme StrangerChat -configuration Release test
+      
+      - name: Archive project
+        run: xcodebuild -archivePath StrangerChat.xcarchive -workspace StrangerChat.xcworkspace -scheme StrangerChat archive
+      
+      - name: Export IPA
+        run: xcodebuild -exportArchive -archivePath StrangerChat.xcarchive -exportPath StrangerChat -exportOptionsPlist ExportOptions.plist
+      
+      - name: Upload IPA
+        uses: actions/upload-artifact@v3
+        with:
+          name: StrangerChat-iOS
+          path: StrangerChat/StrangerChat.ipa
+
+  deploy:
+    needs: build
+    runs-on: macos-latest
+    
+    steps:
+      - name: Download IPA
+        uses: actions/download-artifact@v3
+        with:
+          name: StrangerChat-iOS
+          path: StrangerChat
+      
+      - name: Deploy to TestFlight
+        if: github.ref == 'refs/heads/main'
+        env:
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+        run: |
+          fastlane pilot upload \
+            --api_key_path "${{ secrets.APP_STORE_CONNECT_API_KEY }}" \
+            --api_key_issuer_id "${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}" \
+            --api_key_key_id "${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}" \
+            --ipa "StrangerChat/StrangerChat.ipa" \
+            --skip_waiting_for_build_processing true
+      
+      - name: Deploy to App Store
+        if: github.ref == 'refs/heads/main'
+        env:
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+        run: |
+          fastlane deliver upload \
+            --api_key_path "${{ secrets.APP_STORE_CONNECT_API_KEY }}" \
+            --api_key_issuer_id "${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}" \
+            --api_key_key_id "${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}" \
+            --ipa "StrangerChat/StrangerChat.ipa" \
+            --skip_screenshots true \
+            --skip_metadata true \
+            --force true
